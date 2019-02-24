@@ -167,7 +167,7 @@ public class Client implements Closeable {
    * @throws IOException
    */
   public static void main(String[] args) throws IOException {
-    Client client = new Client("Sample", 10);
+    Client client = new Client("Sample", 4);
 
     try {
       if (args.length == 0) {

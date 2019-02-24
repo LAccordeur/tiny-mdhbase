@@ -197,7 +197,6 @@ public class Index implements Closeable {
       Result regionEntry = indexTable.getRowOrBefore(splitKey, FAMILY_INFO);
       byte[] regionKey = regionEntry.getRow();
       int prefixLength = Bytes.toInt(regionEntry.getValue(FAMILY_INFO, COLUMN_PREFIX_LENGTH));
-      long regionSize = Bytes.toLong(regionEntry.getValue(FAMILY_INFO, COLUMN_BUCKET_SIZE));
       int subRegionIdentifier = Bytes.toInt(regionEntry.getValue(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER));
 
       //2.统计待分裂区域中数据点的最大相似前缀
