@@ -193,122 +193,173 @@ public class Index implements Closeable {
    * [abc1****].
    */
   private void splitBucket(byte[] splitKey) throws IOException {
-    //1.获取带分裂bucket的属性信息
-    Result bucketEntry = indexTable.getRowOrBefore(splitKey, FAMILY_INFO);
-    byte[] bucketKey = bucketEntry.getRow();
-    int prefixLength = Bytes.toInt(bucketEntry.getValue(FAMILY_INFO,
-        COLUMN_PREFIX_LENGTH));
-    long bucketSize = Bytes.toLong(bucketEntry.getValue(FAMILY_INFO,
-        COLUMN_BUCKET_SIZE));
-    int subRegionIdentifier = Bytes.toInt(bucketEntry.getValue(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER));
+      //1.获取带分裂bucket的属性信息
+      Result regionEntry = indexTable.getRowOrBefore(splitKey, FAMILY_INFO);
+      byte[] regionKey = regionEntry.getRow();
+      int prefixLength = Bytes.toInt(regionEntry.getValue(FAMILY_INFO, COLUMN_PREFIX_LENGTH));
+      long regionSize = Bytes.toLong(regionEntry.getValue(FAMILY_INFO, COLUMN_BUCKET_SIZE));
+      int subRegionIdentifier = Bytes.toInt(regionEntry.getValue(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER));
 
-    //2.统计待分裂区域中数据点的最大相似前缀
-      String maxSimilarityPrefix = null;
-      Range[] parentRegionRange = toRanges(bucketKey, prefixLength);
-      Range rx = parentRegionRange[0];
-      Range ry = parentRegionRange[1];
-      byte[] startRow = Utils.bitwiseZip(rx.min, ry.min);
-      byte[] stopRow = Bytes.incrementBytes(Utils.bitwiseZip(rx.max, ry.max), 1L);
+      //2.统计待分裂区域中数据点的最大相似前缀
+      PointDistribution pointDistribution = null;
 
       if (subRegionIdentifier == 0) {
-      //说明这个区域内只含有其本身
-
-          Scan scan = new Scan(startRow, stopRow);
-          scan.addFamily(Bucket.FAMILY);
-          scan.setCaching(1000);
-          ResultScanner results = dataTable.getScanner(scan);
-
+          //说明这个区域内只含有其本身
+          List<Result> results = scanDataRegion(dataTable, regionKey, prefixLength);
           List<Point> pointList = new ArrayList<Point>();
           for (Result result : results) {
-              transformResultAndAddToList(result, pointList);
+              Point point = transformResultToPoint(result);
+              pointList.add(point);
           }
-          maxSimilarityPrefix = Utils.findSimilarPrefix(pointList);
+          pointDistribution = Utils.calculatePointDistribution(pointList, prefixLength);
 
       } else {
-      // 说明这个区域内还还有非直属子区域，统计时需要排除这些子区域
+          //说明这个区域内还还有非直属子区域，统计时需要排除这些子区域
+          List<Result> results = scanIndexRegion(indexTable, regionKey, prefixLength);
+          List<Range[]> regionList = new ArrayList<Range[]>();
+          for (Result result : results) {
+              byte[] rowKey = result.getRow();
+              int pl = Bytes.toInt(result.getValue(FAMILY_INFO, COLUMN_PREFIX_LENGTH));
 
-        Scan scan = new Scan(startRow, stopRow);
-        scan.addFamily(FAMILY_INFO);
-        scan.setCaching(1000);
-        ResultScanner results = indexTable.getScanner(scan);
+              Range[] subRegionRange = toRanges(rowKey, pl);
+              regionList.add(subRegionRange);
+          }
 
-        List<Range[]> regionList = new ArrayList<Range[]>();
-        for (Result result : results) {
-            byte[] rowKey = result.getRow();
-            int pl = Bytes.toInt(result.getValue(FAMILY_INFO, COLUMN_PREFIX_LENGTH));
+          List<Result> dataResults = scanDataRegion(dataTable, regionKey, prefixLength);
+          List<Point> pointList = new ArrayList<Point>();
+          for (Result result : dataResults) {
+              Point point = transformResultToPoint(result);
+              boolean checkResult = checkRange(point, regionList);
+              if (!checkResult) {
+                  pointList.add(point);
+              }
+          }
 
-            Range[] subRegionRange = toRanges(rowKey, pl);
-            regionList.add(subRegionRange);
-        }
-
-        Scan tableScan = new Scan(startRow, stopRow);
-        tableScan.addFamily(Bucket.FAMILY);
-        tableScan.setCaching(1000);
-        ResultScanner tableResults = dataTable.getScanner(scan);
-
-        List<Point> pointList = new ArrayList<Point>();
-        for (Result result : tableResults) {
-            byte[] rowKey = result.getRow();
-
-            Point point = transformResultToPoint(result);
-            boolean checkResult = checkRange(point, regionList);
-            pointList.add(point);
-        }
-
-        maxSimilarityPrefix = Utils.findSimilarPrefix(pointList);
+          pointDistribution = Utils.calculatePointDistribution(pointList, prefixLength);
 
       }
 
       //3.更新
       // 如果由最大相似前缀得到的子区域为父区域的直属子区域，说明父区域以及划分完毕，不必再保留父区域，更新生成的新区域并检查生成的子区域是否为自包含的
       // 否则需要保留并更新父区域的size值
-      byte[] newChildKeyA = (maxSimilarityPrefix + "0").getBytes();
-      byte[] newChildKeyB = (maxSimilarityPrefix + "1").getBytes();
+      byte[] commonKey = pointDistribution.getKey();
+      int commonPrefixLength = pointDistribution.getPrefixLength();
+      if (commonPrefixLength > 32 * 2) {
+          return; // exceeds the maximum prefix length.
+      }
+      byte[] newChildKeyA = commonKey;
+      byte[] newChildKeyB = Bytes.incrementBytes(commonKey, 1L);
 
       //检查生成的子区域是否是父区域的直属子区域
-      boolean result = checkChildRelation();
-      if (result) {
+      List<Put> putList = new ArrayList<Put>();
+      if (prefixLength + 1 == commonPrefixLength) {
           Put put0 = new Put(newChildKeyA);
-          put0.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(newPrefixLength));
-          put0.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(newSize));
+          put0.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
+          put0.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeA()));
+          put0.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
+          putList.add(put0);
+      } else {
+          Put put0 = new Put(regionKey);
+          put0.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(prefixLength));
+          put0.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(0));
+          put0.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
+          putList.add(put0);
       }
 
       //检查子区域是否为自包含的
+      List<Result> childRegionResultA = scanIndexRegion(indexTable, newChildKeyA, commonPrefixLength + 1);
+      if (childRegionResultA.size() == 0 && (prefixLength + 1 == commonPrefixLength)) {
+          //nothing
+      } else {
+          Put put1 = new Put(newChildKeyA);
+          put1.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
+          put1.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeA()));
+          put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
+          putList.add(put1);
+      }
+      List<Result> childRegionResultB = scanIndexRegion(indexTable, newChildKeyB, commonPrefixLength + 1);
+      if (childRegionResultB.size() == 0) {
+          Put put1 = new Put(newChildKeyB);
+          put1.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
+          put1.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeB()));
+          put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
+          putList.add(put1);
+      } else {
+          Put put1 = new Put(newChildKeyB);
+          put1.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
+          put1.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeB()));
+          put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
+          putList.add(put1);
+      }
 
+      indexTable.put(putList);
 
-
-
-    int newPrefixLength = prefixLength + 1;
-    if (newPrefixLength > 32 * 2) {
-      return; // exceeds the maximum prefix length.
-    }
-
-    byte[] newChildKey0 = bucketKey;
-    byte[] newChildKey1 = Utils.makeBit(bucketKey, prefixLength);
-    Scan scan = new Scan(newChildKey0, newChildKey1);
-    scan.addFamily(Bucket.FAMILY);
-    scan.setCaching(1000);
-    ResultScanner results = dataTable.getScanner(scan);
-    long newSize = 0L;
-    for (Result result : results) {
-      newSize += result.getFamilyMap(Bucket.FAMILY).size();
-      System.out.println(result.getFamilyMap(Bucket.FAMILY));
-    }
-
-    Put put0 = new Put(newChildKey0);
-    put0.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(newPrefixLength));
-    put0.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(newSize));
-    Put put1 = new Put(newChildKey1);
-    put1.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(newPrefixLength));
-    put1.add(FAMILY_INFO, COLUMN_BUCKET_SIZE,
-        Bytes.toBytes(bucketSize - newSize));
-    List<Put> puts = new ArrayList<Put>(2);
-    puts.add(put0);
-    puts.add(put1);
-    indexTable.put(puts);
-    maySplit(newChildKey0, newSize);
-    maySplit(newChildKey1, bucketSize - newSize);
   }
+
+  private boolean checkNextBit(byte[] parentKey, byte[] childKey, int prefixLength) {
+      boolean result = false;
+
+      return result;
+  }
+
+  private boolean checkRange(Point point, List<Range[]> rangeList) {
+      boolean result = false;
+
+      for (Range[] range : rangeList) {
+          Range rangeX = range[0];
+          Range rangeY = range[1];
+
+          if (rangeX.include(point.x) && rangeY.include(point.y)) {
+              return true;
+          }
+
+      }
+
+      return result;
+  }
+
+  private List<Result> scanDataRegion(HTable hTable, byte[] regionKey, int prefixLength) throws IOException {
+      List<Result> resultList = new ArrayList<Result>();
+
+      Range[] regionRange = toRanges(regionKey, prefixLength);
+      Range rx = regionRange[0];
+      Range ry = regionRange[1];
+      byte[] startRow = Utils.bitwiseZip(rx.min, ry.min);
+      byte[] stopRow = Bytes.incrementBytes(Utils.bitwiseZip(rx.max, ry.max), 1L);
+
+      Scan scan = new Scan(startRow, stopRow);
+      scan.addFamily(Bucket.FAMILY);
+      scan.setCaching(1000);
+      ResultScanner results = hTable.getScanner(scan);
+
+      for (Result result : results) {
+          resultList.add(result);
+      }
+
+      return resultList;
+  }
+
+    private List<Result> scanIndexRegion(HTable hTable, byte[] regionKey, int prefixLength) throws IOException {
+        List<Result> resultList = new ArrayList<Result>();
+
+        Range[] regionRange = toRanges(regionKey, prefixLength);
+        Range rx = regionRange[0];
+        Range ry = regionRange[1];
+        byte[] startRow = Utils.bitwiseZip(rx.min, ry.min);
+        byte[] stopRow = Bytes.incrementBytes(Utils.bitwiseZip(rx.max, ry.max), 1L);
+
+        Scan scan = new Scan(startRow, stopRow);
+        scan.addFamily(FAMILY_INFO);
+        scan.setCaching(1000);
+        ResultScanner results = hTable.getScanner(scan);
+
+        for (Result result : results) {
+            resultList.add(result);
+        }
+
+        return resultList;
+    }
+
 
     private void transformResultAndAddToList(Result result, List<Point> found) {
         NavigableMap<byte[], byte[]> map = result.getFamilyMap(Bucket.FAMILY);
@@ -316,14 +367,15 @@ public class Index implements Closeable {
             Point p = toPoint(entry.getKey(), entry.getValue());
             found.add(p);
         }
+
+
     }
 
     private Point transformResultToPoint(Result result) {
-        NavigableMap<byte[], byte[]> map = result.getFamilyMap(Bucket.FAMILY);
-        for (Map.Entry<byte[], byte[]> entry : map.entrySet()) {
-            Point p = toPoint(entry.getKey(), entry.getValue());
-            return p;
-        }
+        byte[] rowKey = result.getRow();
+        int[] coordination = Utils.bitwiseUnzip(rowKey);
+        Point point = new Point(coordination[0], coordination[1]);
+        return point;
     }
 
     private Point toPoint(byte[] qualifier, byte[] value) {

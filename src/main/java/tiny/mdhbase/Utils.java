@@ -32,31 +32,114 @@ public class Utils {
 
   }
 
-  public static String findSimilarPrefix(List<Point> pointList) {
+  public static PointDistribution calculatePointDistribution(List<Point> pointList, int currentPrefixLength) {
+
+    PointDistribution pointDistribution = new PointDistribution();
 
     List<String> zorderingStringList = new ArrayList<String>();
     for (Point point : pointList) {
       byte[] zordering = bitwiseZip(point.x, point.y);
-      String zorderingString = new String(zordering);
+
+      StringBuilder stringBuilder = new StringBuilder();
+      for (byte item : zordering) {
+        stringBuilder.append(byteToBit(item));
+      }
+      String zorderingString = stringBuilder.toString();
       zorderingStringList.add(zorderingString);
     }
 
     int prefixLength = 0;
     int flag = 0;
-    for (int i = 0; i < 64; i++) {
+    for (int i = currentPrefixLength; i < 64; i++) {
 
       for (int j = 1; j < zorderingStringList.size(); j++) {
         char character = zorderingStringList.get(j).charAt(i);
         if (character != zorderingStringList.get(j-1).charAt(i)) {
-
+          flag = 1;
           break;
         }
       }
       if (flag == 1) {
         prefixLength = i + 1;
+        break;
       }
     }
-    return zorderingStringList.get(0).substring(0, prefixLength);
+
+    int childSizeA = 0;
+    int childSizeB = 0;
+    for (String zordering : zorderingStringList) {
+      char identifier = zordering.charAt(prefixLength - 1);
+      if (identifier == '0') {
+        childSizeA = childSizeA + 1;
+      } else if (identifier == '1') {
+        childSizeB = childSizeB + 1;
+      }
+    }
+
+    byte[] maxCommonPrefix = parseBinaryString(zorderingStringList.get(0).substring(0, prefixLength));
+
+    pointDistribution.setPrefixLength(prefixLength);
+    pointDistribution.setKey(maxCommonPrefix);
+    pointDistribution.setChildSizeA(childSizeA);
+    pointDistribution.setChildSizeB(childSizeB);
+    return pointDistribution;
+  }
+
+  /**
+   * 将byte转为二进制字符串
+   * @param b
+   * @return
+   */
+  public static String byteToBit(byte b) {
+    return ""
+            + (byte) ((b >> 7) & 0x1) + (byte) ((b >> 6) & 0x1)
+            + (byte) ((b >> 5) & 0x1) + (byte) ((b >> 4) & 0x1)
+            + (byte) ((b >> 3) & 0x1) + (byte) ((b >> 2) & 0x1)
+            + (byte) ((b >> 1) & 0x1) + (byte) ((b >> 0) & 0x1);
+  }
+
+  public static byte[] parseBinaryString(String binaryString) {
+    int len = binaryString.length();
+
+    if (len > 0 && len <=64) {
+      for (int i = len; i <=64; i++) {
+        binaryString = binaryString + "0";
+      }
+    }
+
+    byte[] byteResult = new byte[8];
+
+    for (int i = 0; i < 8; i++) {
+      byteResult[i] = decodeBinaryString(binaryString.substring(i, 8 * (i + 1)));
+    }
+
+    return byteResult;
+  }
+
+  /**
+   * 将二进制字符串转为byte
+   * @param byteStr
+   * @return
+   */
+  public static byte decodeBinaryString(String byteStr) {
+    int re, len;
+    if (null == byteStr) {
+      return 0;
+    }
+    len = byteStr.length();
+    if (len != 4 && len != 8) {
+      return 0;
+    }
+    if (len == 8) {// 8 bit处理
+      if (byteStr.charAt(0) == '0') {// 正数
+        re = Integer.parseInt(byteStr, 2);
+      } else {// 负数
+        re = Integer.parseInt(byteStr, 2) - 256;
+      }
+    } else {// 4 bit处理
+      re = Integer.parseInt(byteStr, 2);
+    }
+    return (byte) re;
   }
 
   public static byte[] bitwiseZip(int x, int y) {

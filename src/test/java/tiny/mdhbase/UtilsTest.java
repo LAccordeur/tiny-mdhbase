@@ -18,6 +18,8 @@ package tiny.mdhbase;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
+import org.apache.hadoop.hbase.util.Bytes;
+import org.jruby.RubyProcess;
 import org.junit.Test;
 
 /**
@@ -37,10 +39,34 @@ public class UtilsTest {
   }
 
   @Test
+  public void testBitwiseZip2() {
+    int x = 1;
+    int y = 2;
+    byte[] result = Utils.bitwiseZip(1, 2);
+    for (byte item : result) {
+      System.out.println(item);
+    }
+
+    int[] ints = Utils.bitwiseUnzip(result);
+    for (int item : ints) {
+      System.out.println(item);
+    }
+  }
+
+  @Test
   public void testBitwiseUnzip() throws Exception {
     byte[] data = Utils.bitwiseZip(0x0000FFFF, 0x00FF00FF);
     int[] actual = Utils.bitwiseUnzip(data);
     assertArrayEquals(new int[] { 0x0000FFFF, 0x00FF00FF }, actual);
+  }
+
+  @Test
+  public void testInt2Byte() {
+    String i = "0101";
+
+    byte result = Utils.decodeBinaryString(i);
+    System.out.println(result);
+
   }
 
   @Test
