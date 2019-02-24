@@ -60,7 +60,7 @@ public class Utils {
         }
       }
       if (flag == 1) {
-        prefixLength = i + 1;
+        prefixLength = i;
         break;
       }
     }
@@ -68,7 +68,7 @@ public class Utils {
     int childSizeA = 0;
     int childSizeB = 0;
     for (String zordering : zorderingStringList) {
-      char identifier = zordering.charAt(prefixLength - 1);
+      char identifier = zordering.charAt(prefixLength);
       if (identifier == '0') {
         childSizeA = childSizeA + 1;
       } else if (identifier == '1') {

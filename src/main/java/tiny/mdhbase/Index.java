@@ -255,7 +255,7 @@ public class Index implements Closeable {
           Put put0 = new Put(newChildKeyA);
           put0.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
           put0.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeA()));
-          put0.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
+          //put0.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0)); //是否为自包含待确定
           putList.add(put0);
       } else {
           Put put0 = new Put(regionKey);
@@ -267,29 +267,34 @@ public class Index implements Closeable {
 
       //检查子区域是否为自包含的
       List<Result> childRegionResultA = scanIndexRegion(indexTable, newChildKeyA, commonPrefixLength + 1);
-      if (childRegionResultA.size() == 0 && (prefixLength + 1 == commonPrefixLength)) {
-          //nothing
+      if (prefixLength + 1 == commonPrefixLength) {
+          if (childRegionResultA.size() == 0) {
+              putList.get(0).add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
+          } else {
+              putList.get(0).add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
+          }
       } else {
           Put put1 = new Put(newChildKeyA);
           put1.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
           put1.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeA()));
-          put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
+          if (childRegionResultA.size() == 0) {
+              put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
+          } else {
+              put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
+          }
           putList.add(put1);
       }
+
       List<Result> childRegionResultB = scanIndexRegion(indexTable, newChildKeyB, commonPrefixLength + 1);
+      Put put2 = new Put(newChildKeyB);
+      put2.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
+      put2.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeB()));
       if (childRegionResultB.size() == 0) {
-          Put put1 = new Put(newChildKeyB);
-          put1.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
-          put1.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeB()));
-          put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
-          putList.add(put1);
+          put2.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
       } else {
-          Put put1 = new Put(newChildKeyB);
-          put1.add(FAMILY_INFO, COLUMN_PREFIX_LENGTH, Bytes.toBytes(commonPrefixLength + 1));
-          put1.add(FAMILY_INFO, COLUMN_BUCKET_SIZE, Bytes.toBytes(pointDistribution.getChildSizeB()));
-          put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
-          putList.add(put1);
+          put2.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
       }
+      putList.add(put2);
 
       indexTable.put(putList);
 

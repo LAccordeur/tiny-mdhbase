@@ -22,6 +22,9 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.jruby.RubyProcess;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * @author shoji
  * 
@@ -54,6 +57,29 @@ public class UtilsTest {
   }
 
   @Test
+  public void testCalculate() {
+
+    List<Point> pointList = new ArrayList<Point>();
+    Point point1 = new Point(1, 1);
+    Point point2 = new Point(2, 2);
+    Point point3 = new Point(3, 3);
+    Point point4 = new Point(4, 4);
+    pointList.add(point1);
+    pointList.add(point2);
+    pointList.add(point3);
+    pointList.add(point4);
+
+
+    PointDistribution pointDistribution = Utils.calculatePointDistribution(pointList, 2);
+    System.out.println(pointDistribution.getPrefixLength());
+    System.out.println(pointDistribution.getChildSizeA());
+    byte[] key = pointDistribution.getKey();
+    for (byte item : key) {
+      System.out.println(item);
+    }
+  }
+
+  @Test
   public void testBitwiseUnzip() throws Exception {
     byte[] data = Utils.bitwiseZip(0x0000FFFF, 0x00FF00FF);
     int[] actual = Utils.bitwiseUnzip(data);
@@ -65,7 +91,17 @@ public class UtilsTest {
     String i = "0101";
 
     byte result = Utils.decodeBinaryString(i);
-    System.out.println(result);
+    List<String[]> strings = new ArrayList<String[]>();
+    String[] strings1 = {"1", "1"};
+    String[] strings2 = {"2", "3"};
+    strings.add(strings1);
+    strings.add(strings2);
+
+    for (String[] item : strings) {
+      for (String string : item) {
+        System.out.println(string);
+      }
+    }
 
   }
 
