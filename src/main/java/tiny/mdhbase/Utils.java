@@ -98,6 +98,15 @@ public class Utils {
             + (byte) ((b >> 1) & 0x1) + (byte) ((b >> 0) & 0x1);
   }
 
+  public static String bytesToBit(byte[] b) {
+    StringBuilder stringBuilder = new StringBuilder();
+    for (byte item : b) {
+      stringBuilder = stringBuilder.append(byteToBit(item));
+    }
+
+    return stringBuilder.toString();
+  }
+
   public static byte[] parseBinaryString(String binaryString) {
     int len = binaryString.length();
 

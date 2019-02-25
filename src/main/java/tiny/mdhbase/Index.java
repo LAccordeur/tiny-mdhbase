@@ -193,12 +193,13 @@ public class Index implements Closeable {
    * [abc1****].
    */
   private void splitBucket(byte[] splitKey) throws IOException {
-      //1.获取带分裂bucket的属性信息
+      //1.获取待分裂bucket的属性信息
       Result regionEntry = indexTable.getRowOrBefore(splitKey, FAMILY_INFO);
       byte[] regionKey = regionEntry.getRow();
       int prefixLength = Bytes.toInt(regionEntry.getValue(FAMILY_INFO, COLUMN_PREFIX_LENGTH));
       int subRegionIdentifier = Bytes.toInt(regionEntry.getValue(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER));
 
+      System.out.println("Parent region info: " + Utils.bytesToBit(regionKey) + "\t" + prefixLength + "\t" + subRegionIdentifier);
       //2.统计待分裂区域中数据点的最大相似前缀
       PointDistribution pointDistribution = null;
 
@@ -213,7 +214,7 @@ public class Index implements Closeable {
           pointDistribution = Utils.calculatePointDistribution(pointList, prefixLength);
 
       } else {
-          //说明这个区域内还还有非直属子区域，统计时需要排除这些子区域
+          //说明这个区域内还还有非直属子区域，统计时需要排除这些子区域  TODO 待测试
           List<Result> results = scanIndexRegion(indexTable, regionKey, prefixLength);
           List<Range[]> regionList = new ArrayList<Range[]>();
           for (Result result : results) {
@@ -238,6 +239,8 @@ public class Index implements Closeable {
 
       }
 
+      System.out.println(pointDistribution.toString());
+
       //3.更新
       // 如果由最大相似前缀得到的子区域为父区域的直属子区域，说明父区域以及划分完毕，不必再保留父区域，更新生成的新区域并检查生成的子区域是否为自包含的
       // 否则需要保留并更新父区域的size值
@@ -247,8 +250,11 @@ public class Index implements Closeable {
           return; // exceeds the maximum prefix length.
       }
       byte[] newChildKeyA = commonKey;
-      byte[] newChildKeyB = Bytes.incrementBytes(commonKey, 1L);
+      byte[] newChildKeyB = Bytes.incrementBytes(Arrays.copyOf(commonKey, 8), 1L);
 
+      System.out.println("common key: " + Arrays.toString(commonKey));
+      System.out.println("child A key: " + Arrays.toString(newChildKeyA));
+      System.out.println("child B key: " + Arrays.toString(newChildKeyB));
       //检查生成的子区域是否是父区域的直属子区域
       List<Put> putList = new ArrayList<Put>();
       if (prefixLength + 1 == commonPrefixLength) {
@@ -267,6 +273,7 @@ public class Index implements Closeable {
 
       //检查子区域是否为自包含的
       List<Result> childRegionResultA = scanIndexRegion(indexTable, newChildKeyA, commonPrefixLength + 1);
+      System.out.println("Child Region A: " + childRegionResultA.size());
       if (prefixLength + 1 == commonPrefixLength) {
           if (childRegionResultA.size() == 0) {
               putList.get(0).add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(0));
@@ -283,6 +290,7 @@ public class Index implements Closeable {
               put1.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
           }
           putList.add(put1);
+
       }
 
       List<Result> childRegionResultB = scanIndexRegion(indexTable, newChildKeyB, commonPrefixLength + 1);
@@ -295,6 +303,10 @@ public class Index implements Closeable {
           put2.add(FAMILY_INFO, COLUMN_SUB_REGION_IDENTIFIER, Bytes.toBytes(1));
       }
       putList.add(put2);
+
+      for (Put put : putList) {
+          System.out.println(put.toJSON());
+      }
 
       indexTable.put(putList);
 

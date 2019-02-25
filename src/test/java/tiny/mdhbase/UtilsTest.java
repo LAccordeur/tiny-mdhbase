@@ -23,6 +23,7 @@ import org.jruby.RubyProcess;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -84,6 +85,13 @@ public class UtilsTest {
     byte[] data = Utils.bitwiseZip(0x0000FFFF, 0x00FF00FF);
     int[] actual = Utils.bitwiseUnzip(data);
     assertArrayEquals(new int[] { 0x0000FFFF, 0x00FF00FF }, actual);
+  }
+
+  @Test
+  public void test() {
+    byte[] value = {0, 0, 0, 1};
+    byte[] result = Bytes.incrementBytes(value, 1L);
+    System.out.println(Arrays.toString(result));
   }
 
   @Test

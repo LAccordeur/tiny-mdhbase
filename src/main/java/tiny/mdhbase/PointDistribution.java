@@ -1,5 +1,7 @@
 package tiny.mdhbase;
 
+import java.util.Arrays;
+
 /**
  * @Author : guoyang
  * @Description :
@@ -7,38 +9,28 @@ package tiny.mdhbase;
  */
 public class PointDistribution {
 
-    private int totalSize;
+    private long childSizeA;
 
-    private int childSizeA;
-
-    private int childSizeB;
+    private long childSizeB;
 
     private byte[] key;
 
     private int prefixLength;
 
-    public int getChildSizeA() {
+    public long getChildSizeA() {
         return childSizeA;
     }
 
-    public void setChildSizeA(int childSizeA) {
+    public void setChildSizeA(long childSizeA) {
         this.childSizeA = childSizeA;
     }
 
-    public int getChildSizeB() {
+    public long getChildSizeB() {
         return childSizeB;
     }
 
-    public void setChildSizeB(int childSizeB) {
+    public void setChildSizeB(long childSizeB) {
         this.childSizeB = childSizeB;
-    }
-
-    public int getTotalSize() {
-        return totalSize;
-    }
-
-    public void setTotalSize(int totalSize) {
-        this.totalSize = totalSize;
     }
 
     public byte[] getKey() {
@@ -55,5 +47,15 @@ public class PointDistribution {
 
     public void setPrefixLength(int prefixLength) {
         this.prefixLength = prefixLength;
+    }
+
+    @Override
+    public String toString() {
+        return "PointDistribution{" +
+                "childSizeA=" + childSizeA +
+                ", childSizeB=" + childSizeB +
+                ", key=" + Arrays.toString(key) +
+                ", prefixLength=" + prefixLength +
+                '}';
     }
 }
